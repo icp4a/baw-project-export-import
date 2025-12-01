@@ -363,6 +363,8 @@ public class BAWApiClient {
                 request.setHeader("BPMCSRFToken", csrfToken);
             }
             
+            request.setHeader("repositoryId", "platformRepo");
+            
             // Build multipart entity
             HttpEntity entity = MultipartEntityBuilder.create()
                     .addPart("import_file", new FileBody(file))

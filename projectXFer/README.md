@@ -1,15 +1,15 @@
 # IBM BAW Process App Migrator
 
-A Java application that exports IBM Business Automation Workflow (BAW) Process Apps from one system and imports them into another, automatically handling toolkit dependencies.
+A Java application that exports IBM Business Automation Workflow (BAW) Workflow Automations (Process Apps and Case) from one system and imports them into another, automatically handling toolkit dependencies. The systems may be BAW or CP4BA environments. The target environment must be at the version of the source or newer. Works for CP4BA Business Applications as well.
 
 ## Features
 
-- **Automatic Dependency Resolution**: Identifies and resolves all toolkit dependencies for Process Apps
+- **Automatic Dependency Resolution**: Identifies and resolves all toolkit dependencies for Project(s)
 - **Branch Support**: Exports and imports snapshots from all branches (or just the default branch with `--ignore-branches`)
 - **Ordered Migration**: Exports and imports toolkits in the correct order (leaf-first, oldest version first)
 - **System Toolkit Filtering**: Automatically skips system toolkits that shouldn't be migrated
-- **Version Management**: Handles all versions/snapshots of toolkits and Process Apps across all branches
-- **Batch Migration**: Can migrate all Process Apps or specific ones
+- **Version Management**: Handles all versions/snapshots of toolkits and Projects across all branches
+- **Batch Migration**: Can migrate all Projects or specific ones
 - **Comprehensive Logging**: Detailed logging for troubleshooting and audit trails
 
 ## Prerequisites
@@ -23,13 +23,13 @@ A Java application that exports IBM Business Automation Workflow (BAW) Process A
 
 ```bash
 # Clone or download the project
-cd process-app-migrator
+cd baw-project-export-import\projectXFer
 
 # Build with Maven
 mvn clean package
 
 # The executable JAR will be created at:
-# target/process-app-migrator-1.0.0-jar-with-dependencies.jar
+# target/baw-project-export-import-1.0.0-jar-with-dependencies.jar
 ```
 
 ## Usage
@@ -44,9 +44,9 @@ mvn clean package
 | `--target-url` | Target system base URL (e.g., https://target-server:9443) | Yes |
 | `--target-user` | Target system username | Yes |
 | `--target-password` | Target system password | Yes |
-| `--project` | Name of specific Process App to migrate | No* |
-| `--projects` | Comma-separated list of Process App acronyms to migrate | No* |
-| `--all` | Migrate all Process Apps | No* |
+| `--project` | Name of specific project to export and import | No* |
+| `--projects` | Comma-separated list of project acronyms to migrate | No* |
+| `--all` | Migrate all projects | No* |
 | `--export-dir` | Directory for exported files (default: ./exports) | No |
 | `--ignore-branches` | Only export/import snapshots from the default branch (ignore other branches) | No |
 | `--help` | Print help message | No |
@@ -57,61 +57,6 @@ mvn clean package
 - CSRF tokens are automatically obtained from the `/system/login` API endpoint when the application connects to each system.
 - By default, all branches are processed. Use `--ignore-branches` to only process the default branch.
 
-### Examples
-
-#### Migrate a Specific Process App by Name (All Branches)
-
-```bash
-java -jar target/process-app-migrator-1.0.0-jar-with-dependencies.jar \
-  --source-url https://source-baw.company.com:9443 \
-  --source-user admin \
-  --source-password sourcePassword123 \
-  --target-url https://target-baw.company.com:9443 \
-  --target-user admin \
-  --target-password targetPassword456 \
-  --project "Customer Onboarding Process" \
-  --export-dir /tmp/baw-exports
-```
-
-#### Migrate a Process App (Default Branch Only)
-
-```bash
-java -jar target/process-app-migrator-1.0.0-jar-with-dependencies.jar \
-  --source-url https://source-baw.company.com:9443 \
-  --source-user admin \
-  --source-password sourcePassword123 \
-  --target-url https://target-baw.company.com:9443 \
-  --target-user admin \
-  --target-password targetPassword456 \
-  --project "Customer Onboarding Process" \
-  --ignore-branches
-```
-
-#### Migrate Multiple Process Apps by Acronym
-
-```bash
-java -jar target/process-app-migrator-1.0.0-jar-with-dependencies.jar \
-  --source-url https://source-baw.company.com:9443 \
-  --source-user admin \
-  --source-password sourcePassword123 \
-  --target-url https://target-baw.company.com:9443 \
-  --target-user admin \
-  --target-password targetPassword456 \
-  --projects COP,IRP,OMS
-```
-
-#### Migrate All Process Apps
-
-```bash
-java -jar target/process-app-migrator-1.0.0-jar-with-dependencies.jar \
-  --source-url https://source-baw.company.com:9443 \
-  --source-user admin \
-  --source-password sourcePassword123 \
-  --target-url https://target-baw.company.com:9443 \
-  --target-user admin \
-  --target-password targetPassword456 \
-  --all
-```
 
 ## How It Works
 
@@ -122,13 +67,13 @@ java -jar target/process-app-migrator-1.0.0-jar-with-dependencies.jar \
    - Automatically obtains CSRF tokens via the `/system/login` API endpoint
    - Uses Basic Authentication with provided credentials
 
-2. **Project Discovery**: Retrieves the specified Process App(s) from the source system
+2. **Project Discovery**: Retrieves the specified Project(s) from the source system
 
 3. **Branch Discovery**:
-   - Retrieves all branches for the Process App (or just the default branch if `--ignore-branches` is specified)
+   - Retrieves all branches for the Project (or just the default branch if `--ignore-branches` is specified)
    - Processes each branch independently
 
-4. **Dependency Analysis**: For each Process App and branch:
+4. **Dependency Analysis**: For each Project and branch:
    - Retrieves all snapshots/versions from the branch
    - Uses the `/what_used` API endpoint to get the complete dependency tree in a single call
    - Recursively processes dependencies (toolkits may depend on other toolkits)
@@ -148,7 +93,7 @@ java -jar target/process-app-migrator-1.0.0-jar-with-dependencies.jar \
    - Imports toolkits in the calculated order to the target system
    - Checks if toolkits already exist on target to avoid duplicates
    - Imports all versions of each toolkit from all branches in chronological order
-   - Finally imports the Process App snapshots from all branches
+   - Finally imports the top level project snapshots from all branches
 
 ### Dependency Resolution Algorithm
 
@@ -173,7 +118,7 @@ Export and import in sorted order (all branches, all snapshots)
 
 ### API Endpoints Used
 
-The application uses the following IBM BAW REST APIs:
+The application uses the following IBM BAW/CP4BA REST APIs:
 
 **Authentication:**
 - `POST /bas/bpm/system/login` - Obtain CSRF token
@@ -275,9 +220,8 @@ java -Dorg.slf4j.simpleLogger.defaultLogLevel=debug \
 
 ## Limitations
 
-- Mainly tested with Process Apps (type: "processapp"), however should also work with Business Applications
 - Requires both systems to be accessible simultaneously
-- Does not migrate user permissions of project(s)
+- Does not migrate user permissions of projects
 - System toolkits are automatically excluded from migration
 
 ## Security Considerations
@@ -320,7 +264,7 @@ For issues or questions:
 - Updated toolkit migration to handle multi-branch snapshots
 
 ### 1.0.0 (Initial Release)
-- Basic Process App migration functionality
+- Basic Project migration functionality
 - Automatic toolkit dependency resolution
 - Ordered export and import
 - Command-line interface

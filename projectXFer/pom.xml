@@ -6,12 +6,12 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>com.ibm.baw</groupId>
-    <artifactId>process-app-migrator</artifactId>
+    <artifactId>baw-project-export-import</artifactId>
     <version>1.0.0</version>
     <packaging>jar</packaging>
 
-    <name>Process App Migrator</name>
-    <description>Tool to export and import IBM BAW Process Apps with toolkit dependencies</description>
+    <name>Project Export Import</name>
+    <description>Tool to export and import IBM BAW Workflow Automations (Process Apps) with toolkit dependencies</description>
 
     <properties>
         <maven.compiler.source>1.8</maven.compiler.source>
