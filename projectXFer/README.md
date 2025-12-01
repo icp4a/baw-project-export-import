@@ -275,13 +275,9 @@ java -Dorg.slf4j.simpleLogger.defaultLogLevel=debug \
 
 ## Limitations
 
-- Only supports Process Apps (type: "processapp")
+- Mainly tested with Process Apps (type: "processapp"), however should also work with Business Applications
 - Requires both systems to be accessible simultaneously
-- Does not migrate:
-  - User permissions
-  - Server configurations
-  - Environment variables
-  - External service connections
+- Does not migrate user permissions of project(s)
 - System toolkits are automatically excluded from migration
 
 ## Security Considerations

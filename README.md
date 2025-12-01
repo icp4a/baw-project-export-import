@@ -101,18 +101,14 @@ java -jar process-app-migrator-1.0.0-jar-with-dependencies.jar \
   --all
 ```
 
-## Limitations
+## Development
 - For modifying and building the tool, see the projectXFer folder.
 
 ## Limitations
 
-- Only supports Process Apps (type: "processapp")
+- Mainly tested with Process Apps (type: "processapp"), however should also work with Business Applications
 - Requires both systems to be accessible simultaneously
-- Does not migrate:
-  - User permissions
-  - Server configurations
-  - Environment variables
-  - External service connections
+- Does not migrate user permissions of project(s)
 - System toolkits are automatically excluded from migration
 
 ## Security Considerations
