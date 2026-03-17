@@ -1,16 +1,16 @@
 # IBM BAW/CP4BA Project Export Import
 
-A Java application that exports IBM Business Automation Workflow (BAW) Workflow Automations (Process Apps and Case) from one system and imports them into another, automatically handling toolkit dependencies. The systems may be BAW or CP4BA environments. The target environment must be at the version of the source or newer. Works for CP4BA Business Applications as well.
+A Java application that exports IBM Business Automation Workflow (BAW) Workflow Automations (Process Apps and Case) from one system and imports them into another, automatically handling toolkit dependencies. The systems can be BAW or CP4BA environments. The target environment must be at the version of the source or newer. Works for CP4BA Business Applications as well.
 
 ## Features
 
-- **Automatic Dependency Resolution**: Identifies and resolves all toolkit dependencies for Project(s)
-- **Branch Support**: Exports and imports snapshots from all branches (or just the default branch with `--ignore-branches`)
-- **Ordered Migration**: Exports and imports toolkits in the correct order (leaf-first, oldest version first)
-- **System Toolkit Filtering**: Automatically skips system toolkits that shouldn't be migrated
-- **Version Management**: Handles all versions/snapshots of toolkits and Projects across all branches
-- **Batch Migration**: Can migrate all Projects or specific ones
-- **Comprehensive Logging**: Detailed logging for troubleshooting and audit trails
+- **Automatic dependency resolution**: Identifies and resolves all toolkit dependencies for projects
+- **Branch support**: Exports and imports snapshots from all branches (or just the default branch with `--ignore-branches`)
+- **Ordered migration**: Exports and imports toolkits in the correct order (leaf-first, oldest version first)
+- **System toolkit filtering**: Automatically skips system toolkits that should not be migrated
+- **Version management**: Handles all versions/snapshots of toolkits and projects across all branches
+- **Batch migration**: Can migrate all projects or specific ones
+- **Comprehensive logging**: Detailed logging for troubleshooting and audit trails
 
 ## Prerequisites
 
@@ -20,7 +20,7 @@ A Java application that exports IBM Business Automation Workflow (BAW) Workflow 
 
 ## Usage
 
-- Download baw-project-export-import-#.#.#-jar-with-dependencies.jar
+- Download the latest version of `baw-project-export-import-#.#.#-jar-with-dependencies.jar`
 
 ### Command Line Options
 
@@ -39,11 +39,11 @@ A Java application that exports IBM Business Automation Workflow (BAW) Workflow 
 | `--ignore-branches` | Only export/import snapshots from the default branch (ignore other branches) | No |
 | `--help` | Print help message | No |
 
-*Either `--project`, `--projects`, or `--all` must be specified.
+> \* Either `--project`, `--projects`, or `--all` must be specified.
 
 **Note**:
-- CSRF tokens are automatically obtained from the `/system/login` API endpoint when the application connects to each system.
-- By default, all branches are processed. Use `--ignore-branches` to only process the default branch.
+- The application automatically obtains CSRF tokens from the `/system/login` API endpoint when the application connects to each system.
+- By default, the application processes all branches. Use `--ignore-branches` to only process the default branch.
 
 ### Examples
 
@@ -102,7 +102,7 @@ java -jar baw-project-export-import-1.0.0-jar-with-dependencies.jar \
 ```
 
 ## Development
-- For modifying and building the tool, see the projectXFer folder.
+- To modify and build the tool, see the projectXFer folder.
 
 ## Limitations
 - Requires both systems to be accessible simultaneously
@@ -111,11 +111,11 @@ java -jar baw-project-export-import-1.0.0-jar-with-dependencies.jar \
 
 ## Security Considerations
 
-- **SSL Certificate Validation**: The application is configured to trust all SSL certificates, including self-signed certificates. This is necessary for many development and test environments but should be used with caution in production.
+- **SSL certificate validation**: The application is configured to trust all SSL certificates, including self-signed certificates. This is necessary for many development and test environments but should be used with caution in production.
 - **Passwords**: Passwords are passed as command-line arguments (visible in process lists). Consider using environment variables or a secure configuration file for production use.
-- **CSRF Tokens**: CSRF tokens are automatically obtained via the `/system/login` API and are managed internally by the application. Tokens are session-specific and time-limited (default 2 hours).
-- **Exported Files**: Exported .twx files may contain sensitive business logic. Ensure the export directory has appropriate access controls.
-- **Network Security**: Ensure secure network connections between the machine running the tool and both BAW systems.
+- **CSRF tokens**: CSRF tokens are automatically obtained via the `/system/login` API and are managed internally by the application. Tokens are session-specific and time-limited (default 2 hours).
+- **Exported files**: Exported .twx files may contain sensitive business logic. Ensure the export directory has appropriate access controls.
+- **Network security**: Ensure secure network connections between the machine running the tool and both BAW systems.
 
 ## License
 
