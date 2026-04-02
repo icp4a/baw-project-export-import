@@ -4,6 +4,8 @@ A Java application that exports IBM Business Automation Workflow (BAW) Workflow 
 
 ## Features
 
+- **Two-Stage Approach**: Separate planning and execution phases for better control and review
+- **Transfer Plan Generation**: Creates a JSON file with ordered list of all projects and snapshots to migrate
 - **Automatic Dependency Resolution**: Identifies and resolves all toolkit dependencies for Project(s)
 - **Branch Support**: Exports and imports snapshots from all branches (or just the default branch with `--ignore-branches`)
 - **Ordered Migration**: Exports and imports toolkits in the correct order (leaf-first, oldest version first)
@@ -34,7 +36,107 @@ mvn clean package
 
 ## Usage
 
-### Command Line Options
+The migration process is now split into two stages for better control and review:
+
+### Stage 1: Generate Transfer Plan (WriteTransferPlan)
+
+Analyzes the source system and generates a JSON file containing an ordered list of all projects and snapshots to migrate.
+
+#### Command Line Options
+
+| Option | Description | Required |
+|--------|-------------|----------|
+| `--source-url` | Source system base URL (e.g., https://source-server:9443) | Yes |
+| `--source-user` | Source system username | Yes |
+| `--source-password` | Source system password | Yes |
+| `--target-url` | Target system base URL (for documentation in plan) | Yes |
+| `--project` | Name of specific project to migrate | No* |
+| `--projects` | Comma-separated list of project acronyms to migrate | No* |
+| `--all` | Migrate all projects | No* |
+| `--export-dir` | Directory for exported files (default: ./exports) | No |
+| `--output` | Output JSON file path (default: transfer-plan.json) | No |
+| `--ignore-branches` | Only include snapshots from the default branch | No |
+| `--filter-target-environments` | Comma-separated list of target environments to exclude from the plan (values: BAW_tWAS,BAW,BAW_CP4A,BAW_Liberty) | No |
+| `--help` | Print help message | No |
+
+*Either `--project`, `--projects`, or `--all` must be specified.
+
+#### Example Commands
+
+```bash
+# Generate plan for a specific Process App
+java -cp target/baw-project-export-import-1.0.0-jar-with-dependencies.jar \
+  com.ibm.baw.migrator.WriteTransferPlan \
+  --source-url https://source:9443 \
+  --source-user admin \
+  --source-password pass1 \
+  --target-url https://target:9443 \
+  --project "My Process App" \
+  --output my-plan.json
+
+# Generate plan for multiple Process Apps by acronym
+java -cp target/baw-project-export-import-1.0.0-jar-with-dependencies.jar \
+  com.ibm.baw.migrator.WriteTransferPlan \
+  --source-url https://source:9443 \
+  --source-user admin \
+  --source-password pass1 \
+  --target-url https://target:9443 \
+  --projects PA1,PA2,PA3
+
+# Generate plan for all Process Apps
+java -cp target/baw-project-export-import-1.0.0-jar-with-dependencies.jar \
+  com.ibm.baw.migrator.WriteTransferPlan \
+  --source-url https://source:9443 \
+  --source-user admin \
+  --source-password pass1 \
+  --target-url https://target:9443 \
+  --all
+
+# Generate plan with target environment filtering
+# This will exclude snapshots with target environment set to DEV or TEST
+java -cp target/baw-project-export-import-1.0.0-jar-with-dependencies.jar \
+  com.ibm.baw.migrator.WriteTransferPlan \
+  --source-url https://source:9443 \
+  --source-user admin \
+  --source-password pass1 \
+  --target-url https://target:9443 \
+  --project "My Process App" \
+  --filter-target-environments BAW_tWAS
+```
+
+### Stage 2: Execute Transfer (TransferProjects)
+
+Reads the transfer plan JSON file and executes the export/import operations.
+
+#### Command Line Options
+
+| Option | Description | Required |
+|--------|-------------|----------|
+| `--plan` | Path to transfer plan JSON file | Yes |
+| `--source-user` | Source system username | Yes |
+| `--source-password` | Source system password | Yes |
+| `--target-user` | Target system username | Yes |
+| `--target-password` | Target system password | Yes |
+| `--help` | Print help message | No |
+
+#### Example Commands
+
+```bash
+# Execute a transfer plan
+java -cp target/baw-project-export-import-1.0.0-jar-with-dependencies.jar \
+  com.ibm.baw.migrator.TransferProjects \
+  --plan transfer-plan.json \
+  --source-user admin \
+  --source-password pass1 \
+  --target-user admin \
+  --target-password pass2
+```
+
+### Legacy Single-Stage Approach (ProcessAppMigrator)
+
+The original single-stage approach is still available for backward compatibility:
+
+#### Command Line Options
 
 | Option | Description | Required |
 |--------|-------------|----------|
@@ -48,10 +150,35 @@ mvn clean package
 | `--projects` | Comma-separated list of project acronyms to migrate | No* |
 | `--all` | Migrate all projects | No* |
 | `--export-dir` | Directory for exported files (default: ./exports) | No |
-| `--ignore-branches` | Only export/import snapshots from the default branch (ignore other branches) | No |
+| `--ignore-branches` | Only export/import snapshots from the default branch | No |
 | `--help` | Print help message | No |
 
 *Either `--project`, `--projects`, or `--all` must be specified.
+
+#### Example Commands
+
+```bash
+# Migrate a specific Process App (all branches)
+java -jar target/baw-project-export-import-1.0.0-jar-with-dependencies.jar \
+  --source-url https://source:9443 \
+  --source-user admin \
+  --source-password pass1 \
+  --target-url https://target:9443 \
+  --target-user admin \
+  --target-password pass2 \
+  --project "My Process App"
+
+# Migrate with only default branch
+java -jar target/baw-project-export-import-1.0.0-jar-with-dependencies.jar \
+  --source-url https://source:9443 \
+  --source-user admin \
+  --source-password pass1 \
+  --target-url https://target:9443 \
+  --target-user admin \
+  --target-password pass2 \
+  --project "My Process App" \
+  --ignore-branches
+```
 
 **Note**:
 - CSRF tokens are automatically obtained from the `/system/login` API endpoint when the application connects to each system.
@@ -60,17 +187,19 @@ mvn clean package
 
 ## How It Works
 
-### Migration Process
+### Two-Stage Migration Process
+
+#### Stage 1: Transfer Plan Generation (WriteTransferPlan)
 
 1. **Authentication**:
-   - Connects to both source and target systems
-   - Automatically obtains CSRF tokens via the `/system/login` API endpoint
+   - Connects to the source system
+   - Automatically obtains CSRF token via the `/system/login` API endpoint
    - Uses Basic Authentication with provided credentials
 
 2. **Project Discovery**: Retrieves the specified Project(s) from the source system
 
 3. **Branch Discovery**:
-   - Retrieves all branches for the Project (or just the default branch if `--ignore-branches` is specified)
+   - Retrieves all branches for each Project (or just the default branch if `--ignore-branches` is specified)
    - Processes each branch independently
 
 4. **Dependency Analysis**: For each Project and branch:
@@ -85,15 +214,44 @@ mvn clean package
    - Orders toolkits so leaf nodes (no dependencies) are processed first
    - Within each toolkit and branch, orders snapshots by creation date (oldest first)
 
-6. **Export Phase**:
-   - Exports each toolkit snapshot from all branches from the source system as .twx files
-   - Stores exported files in the specified export directory
+6. **Snapshot Filtering** (Optional):
+   - If `--filter-target-environments` is specified, fetches target environment for each snapshot
+   - Excludes snapshots whose target environment matches any in the filter list
+   - Target environment information is included in the generated JSON for all remaining snapshots
 
-7. **Import Phase**:
-   - Imports toolkits in the calculated order to the target system
+7. **Plan Generation**:
+   - Creates a JSON file containing:
+     - Source and target URLs
+     - Export directory configuration
+     - Ordered list of all toolkits with their snapshots (including target environment)
+     - Ordered list of all Process Apps with their snapshots (including target environment)
+   - The plan can be reviewed and modified before execution
+
+#### Stage 2: Transfer Execution (TransferProjects)
+
+1. **Plan Loading**:
+   - Reads the transfer plan JSON file
+   - Validates the plan structure
+
+2. **Authentication**:
+   - Connects to both source and target systems using the URLs from the plan
+   - Automatically obtains CSRF tokens via the `/system/login` API endpoint
+   - Uses Basic Authentication with provided credentials
+
+3. **Export Phase**:
+   - Exports each toolkit snapshot from all branches from the source system as .twx files
+   - Follows the exact order specified in the transfer plan
+   - Stores exported files in the directory specified in the plan
+
+4. **Import Phase**:
+   - Imports toolkits in the order specified in the plan to the target system
    - Checks if toolkits already exist on target to avoid duplicates
    - Imports all versions of each toolkit from all branches in chronological order
-   - Finally imports the top level project snapshots from all branches
+   - Finally imports the Process App snapshots from all branches
+
+### Legacy Single-Stage Process (ProcessAppMigrator)
+
+The original approach combines all steps above into a single execution, performing analysis, export, and import in one run without generating an intermediate plan file.
 
 ### Dependency Resolution Algorithm
 
@@ -128,6 +286,7 @@ The application uses the following IBM BAW/CP4BA REST APIs:
 - `GET /dba/studio/repo/projects/{project_id}` - Get project details
 - `GET /dba/studio/repo/projects/{project_id}/branches` - List all branches
 - `GET /dba/studio/repo/projects/{project_id}/branches/{branch_name}/snapshots` - List snapshots
+- `GET /dba/studio/repo/projects/{project_id}/branches/{branch_name}/snapshots/{snapshot_name}` - Get snapshot details (including target environment)
 - `GET /dba/studio/repo/projects/{project_id}/branches/{branch_name}/snapshots/{snapshot_name}/export` - Export snapshot
 - `POST /dba/studio/repo/projects/import` - Import project
 
@@ -141,7 +300,9 @@ process-app-migrator/
 ├── pom.xml                                    # Maven configuration
 ├── README.md                                  # This file
 └── src/main/java/com/ibm/baw/migrator/
-    ├── ProcessAppMigrator.java               # Main application entry point
+    ├── WriteTransferPlan.java                # Stage 1: Generate transfer plan
+    ├── TransferProjects.java                 # Stage 2: Execute transfer
+    ├── ProcessAppMigrator.java               # Legacy: Single-stage migration
     ├── client/
     │   └── BAWApiClient.java                 # REST API client
     ├── model/
@@ -150,6 +311,7 @@ process-app-migrator/
     │   ├── Branch.java                       # Branch model
     │   ├── Property.java                     # Property model
     │   ├── BooleanProperty.java              # Boolean property model
+    │   ├── TransferPlan.java                 # Transfer plan model
     │   ├── ProjectsResponse.java             # API response wrapper
     │   ├── SnapshotsResponse.java            # API response wrapper
     │   ├── BranchesResponse.java             # API response wrapper
@@ -239,10 +401,43 @@ Potential improvements for future versions:
 - Support for configuration files instead of command-line arguments
 - Parallel export/import for faster migration
 - Resume capability for interrupted migrations
-- Dry-run mode to preview migration without executing
+- Dry-run mode to preview migration without executing (partially addressed by two-stage approach)
 - Support for other project types (case solutions, decision services)
 - Migration validation and verification
 - Rollback capability
+- Transfer plan editing UI
+- Progress tracking and reporting
+
+## Support
+
+For issues or questions:
+1. Check the troubleshooting section above
+2. Review the application logs
+3. Consult IBM BAW documentation for API details
+
+## Version History
+
+### 2.0.0 (Two-Stage Approach)
+- **NEW**: Two-stage migration process for better control
+- **NEW**: `WriteTransferPlan` - Stage 1 app to generate transfer plan JSON
+- **NEW**: `TransferProjects` - Stage 2 app to execute transfer from plan
+- **NEW**: `TransferPlan` model for JSON serialization
+- Transfer plans can be reviewed and modified before execution
+- Original `ProcessAppMigrator` retained for backward compatibility
+- Enhanced documentation with examples for both approaches
+
+### 1.1.0 (Branch Support)
+- Added support for migrating snapshots from all branches
+- New `--ignore-branches` option to maintain backward compatibility
+- Enhanced dependency resolution to process all branches
+- Updated toolkit migration to handle multi-branch snapshots
+
+### 1.0.0 (Initial Release)
+- Basic Project migration functionality
+- Automatic toolkit dependency resolution
+- Ordered export and import
+- Command-line interface
+- Comprehensive logging
 
 ## License
 
@@ -259,25 +454,3 @@ Potential improvements for future versions:
  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  See the License for the specific language governing permissions and
  limitations under the License.
-
-## Support
-
-For issues or questions:
-1. Check the troubleshooting section above
-2. Review the application logs
-3. Consult IBM BAW documentation for API details
-
-## Version History
-
-### 1.1.0 (Branch Support)
-- Added support for migrating snapshots from all branches
-- New `--ignore-branches` option to maintain backward compatibility
-- Enhanced dependency resolution to process all branches
-- Updated toolkit migration to handle multi-branch snapshots
-
-### 1.0.0 (Initial Release)
-- Basic Project migration functionality
-- Automatic toolkit dependency resolution
-- Ordered export and import
-- Command-line interface
-- Comprehensive logging

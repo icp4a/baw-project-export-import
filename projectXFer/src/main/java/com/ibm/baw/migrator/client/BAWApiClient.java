@@ -474,6 +474,42 @@ public class BAWApiClient {
     }
 
     /**
+     * Get snapshot details including target environment
+     * GET /projects/{project_id}/branches/{branch_name}/snapshots/{snapshot_name}
+     */
+    public Snapshot getSnapshotDetails(String projectId, String branchName, String snapshotName) throws IOException {
+        return executeWithRetry(() -> {
+            String url = baseUrl + "/dba/studio/repo/projects/" + projectId + "/branches/" + branchName +
+                         "/snapshots/" + snapshotName;
+            logger.info("Fetching snapshot details: project={}, branch={}, snapshot={}", projectId, branchName, snapshotName);
+            
+            HttpGet request = new HttpGet(url);
+            request.setHeader("Authorization", authHeader);
+            request.setHeader("Accept", "application/json");
+            request.setHeader("repositoryId", "platformRepo");
+            if (csrfToken != null && !csrfToken.isEmpty()) {
+                request.setHeader("BPMCSRFToken", csrfToken);
+            }
+            
+            try (CloseableHttpResponse response = httpClient.execute(request)) {
+                String responseBody;
+                try {
+                    responseBody = EntityUtils.toString(response.getEntity());
+                } catch (org.apache.hc.core5.http.ParseException e) {
+                    throw new IOException("Failed to parse response", e);
+                }
+                
+                if (response.getCode() != 200) {
+                    throw new IOException("Failed to get snapshot details. Status: " +
+                                        response.getCode() + ", Response: " + responseBody);
+                }
+                
+                return objectMapper.readValue(responseBody, Snapshot.class);
+            }
+        });
+    }
+
+    /**
      * Close the HTTP client
      */
     public void close() throws IOException {

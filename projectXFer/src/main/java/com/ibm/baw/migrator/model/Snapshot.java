@@ -39,6 +39,9 @@ public class Snapshot {
     @JsonProperty("creation_date")
     private String creationDate;
     
+    @JsonProperty("target_environment")
+    private String targetEnvironment;
+    
     @JsonProperty("properties")
     private List<Property> properties;
     
@@ -96,6 +99,14 @@ public class Snapshot {
 
     public void setCreationDate(String creationDate) {
         this.creationDate = creationDate;
+    }
+
+    public String getTargetEnvironment() {
+        return targetEnvironment;
+    }
+
+    public void setTargetEnvironment(String targetEnvironment) {
+        this.targetEnvironment = targetEnvironment;
     }
 
     public List<Property> getProperties() {
