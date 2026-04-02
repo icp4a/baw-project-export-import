@@ -31,7 +31,7 @@ See the Readme file in the projectXFer directory for more details on development
 
 ## Usage
 
-Download the latest version of `baw-project-export-import-#.#.#-jar-with-dependencies.jar`
+Download the latest version of `baw-project-export-import-#.#.#-jar-with-dependencies.jar`  
 The migration process is split into two stages for better control and review:
 
 ### Stage 1: Generate Transfer Plan (WriteTransferPlan)
