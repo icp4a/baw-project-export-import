@@ -64,6 +64,19 @@ public class WriteTransferPlan {
             boolean migrateAll = cmd.hasOption("all");
             boolean ignoreBranches = cmd.hasOption("ignore-branches");
             String filterTargetEnvironments = cmd.getOptionValue("filter-target-environments");
+            int maxVersions = -1; // -1 means no limit
+            if (cmd.hasOption("max-versions")) {
+                try {
+                    maxVersions = Integer.parseInt(cmd.getOptionValue("max-versions"));
+                    if (maxVersions <= 0) {
+                        logger.error("max-versions must be a positive integer");
+                        System.exit(1);
+                    }
+                } catch (NumberFormatException e) {
+                    logger.error("Invalid max-versions value: {}", cmd.getOptionValue("max-versions"));
+                    System.exit(1);
+                }
+            }
             
             // Parse filter target environments into a set
             Set<String> filteredEnvironments = new HashSet<>();
@@ -91,7 +104,7 @@ public class WriteTransferPlan {
             plan.setCreatedAt(Instant.now().toString());
 
             // Create dependency resolver
-            DependencyResolver dependencyResolver = new DependencyResolver(sourceClient, ignoreBranches);
+            DependencyResolver dependencyResolver = new DependencyResolver(sourceClient, ignoreBranches, maxVersions);
 
             // Determine which projects to process
             List<Project> projectsToMigrate = new ArrayList<>();
@@ -421,6 +434,12 @@ public class WriteTransferPlan {
                 .longOpt("filter-target-environments")
                 .hasArg()
                 .desc("Comma-separated list of target environments to filter out (e.g., BAW_tWAS,BAW_Liberty)")
+                .build());
+
+        options.addOption(Option.builder("mv")
+                .longOpt("max-versions")
+                .hasArg()
+                .desc("Maximum number of versions (snapshots) to analyze per project during dependency resolution (default: unlimited)")
                 .build());
 
         options.addOption(Option.builder("h")

@@ -35,10 +35,21 @@ public class DependencyResolver {
     private final Map<String, String> acronymToIdMap = new HashMap<>();
     private boolean acronymMapInitialized = false;
     private final boolean ignoreBranches;
+    private final int maxVersions;
 
     public DependencyResolver(BAWApiClient apiClient, boolean ignoreBranches) {
+        this(apiClient, ignoreBranches, -1); // -1 means no limit
+    }
+
+    public DependencyResolver(BAWApiClient apiClient, boolean ignoreBranches, int maxVersions) {
         this.apiClient = apiClient;
         this.ignoreBranches = ignoreBranches;
+        this.maxVersions = maxVersions;
+        if (maxVersions > 0) {
+            logger.info("DependencyResolver initialized with maxVersions limit: {}", maxVersions);
+        } else {
+            logger.info("DependencyResolver initialized with no version limit");
+        }
     }
 
     /**
@@ -71,8 +82,22 @@ public class DependencyResolver {
                 continue;
             }
 
+            // Limit the number of snapshots to analyze if maxVersions is set
+            List<Snapshot> snapshotsToAnalyze = snapshotsResponse.getSnapshots();
+            if (maxVersions > 0 && snapshotsToAnalyze.size() > maxVersions) {
+                // Sort by creation date and take the most recent snapshots
+                List<Snapshot> sortedSnapshots = sortSnapshotsByDate(snapshotsToAnalyze);
+                snapshotsToAnalyze = sortedSnapshots.subList(
+                    Math.max(0, sortedSnapshots.size() - maxVersions),
+                    sortedSnapshots.size()
+                );
+                logger.info("Limiting dependency analysis to {} most recent snapshots (out of {}) for project: {} on branch: {}",
+                           snapshotsToAnalyze.size(), snapshotsResponse.getSnapshots().size(),
+                           project.getDisplayName(), branch.getName());
+            }
+
             // Process each snapshot to build the complete dependency tree
-            for (Snapshot snapshot : snapshotsResponse.getSnapshots()) {
+            for (Snapshot snapshot : snapshotsToAnalyze) {
                 processSnapshotDependencies(project, snapshot, branch.getName(), dependencyMap);
             }
         }
@@ -207,13 +232,28 @@ public class DependencyResolver {
                 continue;
             }
             
-            // Add snapshots for this branch
-            existingDep.addBranchSnapshots(branch.getName(), sortSnapshotsByDate(toolkitSnapshots));
-            logger.debug("Added {} snapshots from branch: {} for toolkit: {}",
-                        toolkitSnapshots.size(), branch.getName(), fullProject.getName());
+            // Limit the number of snapshots if maxVersions is set
+            List<Snapshot> snapshotsToInclude = toolkitSnapshots;
+            if (maxVersions > 0 && toolkitSnapshots.size() > maxVersions) {
+                // Take the most recent snapshots (last N in the sorted list)
+                snapshotsToInclude = toolkitSnapshots.subList(
+                    Math.max(0, toolkitSnapshots.size() - maxVersions),
+                    toolkitSnapshots.size()
+                );
+                logger.info("Limiting to {} most recent snapshots (out of {}) for toolkit: {} on branch: {}",
+                           snapshotsToInclude.size(), toolkitSnapshots.size(), fullProject.getName(), branch.getName());
+            }
             
-            // Now iterate through ALL snapshots of this branch to find all nested dependencies
-            for (Snapshot snapshot : toolkitSnapshots) {
+            // Add only the limited snapshots for this branch
+            existingDep.addBranchSnapshots(branch.getName(), sortSnapshotsByDate(snapshotsToInclude));
+            logger.debug("Added {} snapshots from branch: {} for toolkit: {}",
+                        snapshotsToInclude.size(), branch.getName(), fullProject.getName());
+            
+            // Use the same limited list for dependency analysis
+            List<Snapshot> snapshotsToAnalyze = snapshotsToInclude;
+            
+            // Now iterate through snapshots to find all nested dependencies
+            for (Snapshot snapshot : snapshotsToAnalyze) {
             String snapshotAcronym = snapshot.getName();
             
             if (snapshotAcronym == null) {

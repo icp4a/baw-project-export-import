@@ -36,14 +36,22 @@ public class MigrationService {
     private final boolean ignoreBranches;
 
     public MigrationService(BAWApiClient sourceClient, BAWApiClient targetClient, File exportDirectory, boolean ignoreBranches) {
+        this(sourceClient, targetClient, exportDirectory, ignoreBranches, -1);
+    }
+
+    public MigrationService(BAWApiClient sourceClient, BAWApiClient targetClient, File exportDirectory, boolean ignoreBranches, int maxVersions) {
         this.sourceClient = sourceClient;
         this.targetClient = targetClient;
-        this.dependencyResolver = new DependencyResolver(sourceClient, ignoreBranches);
+        this.dependencyResolver = new DependencyResolver(sourceClient, ignoreBranches, maxVersions);
         this.exportDirectory = exportDirectory;
         this.ignoreBranches = ignoreBranches;
         
         if (!exportDirectory.exists()) {
             exportDirectory.mkdirs();
+        }
+        
+        if (maxVersions > 0) {
+            logger.info("MigrationService initialized with maxVersions limit: {}", maxVersions);
         }
     }
 

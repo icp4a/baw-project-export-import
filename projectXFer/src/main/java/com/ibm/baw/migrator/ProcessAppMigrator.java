@@ -61,6 +61,19 @@ public class ProcessAppMigrator {
             String projectsAcronyms = cmd.getOptionValue("projects");
             boolean migrateAll = cmd.hasOption("all");
             boolean ignoreBranches = cmd.hasOption("ignore-branches");
+            int maxVersions = -1; // -1 means no limit
+            if (cmd.hasOption("max-versions")) {
+                try {
+                    maxVersions = Integer.parseInt(cmd.getOptionValue("max-versions"));
+                    if (maxVersions <= 0) {
+                        logger.error("max-versions must be a positive integer");
+                        System.exit(1);
+                    }
+                } catch (NumberFormatException e) {
+                    logger.error("Invalid max-versions value: {}", cmd.getOptionValue("max-versions"));
+                    System.exit(1);
+                }
+            }
 
             // Create export directory
             File exportDirectory = new File(exportDir);
@@ -81,7 +94,8 @@ public class ProcessAppMigrator {
                 sourceClient,
                 targetClient,
                 exportDirectory,
-                ignoreBranches
+                ignoreBranches,
+                maxVersions
             );
 
             // Perform migration
@@ -219,6 +233,12 @@ public class ProcessAppMigrator {
                 .desc("Only export/import snapshots from the default branch (ignore other branches)")
                 .build());
 
+        options.addOption(Option.builder("mv")
+                .longOpt("max-versions")
+                .hasArg()
+                .desc("Maximum number of versions (snapshots) to analyze per project during dependency resolution (default: unlimited)")
+                .build());
+
         options.addOption(Option.builder("h")
                 .longOpt("help")
                 .desc("Print this help message")
@@ -260,6 +280,11 @@ public class ProcessAppMigrator {
                        "      --source-url https://source:9443 --source-user admin --source-password pass1 \\\n" +
                        "      --target-url https://target:9443 --target-user admin --target-password pass2 \\\n" +
                        "      --project \"My Process App\" --ignore-branches\n\n" +
+                       "  Migrate a Process App with version limit (analyze only last 5 versions per project):\n" +
+                       "    java -jar process-app-migrator.jar \\\n" +
+                       "      --source-url https://source:9443 --source-user admin --source-password pass1 \\\n" +
+                       "      --target-url https://target:9443 --target-user admin --target-password pass2 \\\n" +
+                       "      --project \"My Process App\" --max-versions 5\n\n" +
                        "  Migrate multiple Process Apps by acronym:\n" +
                        "    java -jar process-app-migrator.jar \\\n" +
                        "      --source-url https://source:9443 --source-user admin --source-password pass1 \\\n" +

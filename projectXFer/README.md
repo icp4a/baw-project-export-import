@@ -11,6 +11,8 @@ A Java application that exports IBM Business Automation Workflow (BAW) Workflow 
 - **Ordered Migration**: Exports and imports toolkits in the correct order (leaf-first, oldest version first)
 - **System Toolkit Filtering**: Automatically skips system toolkits that shouldn't be migrated
 - **Version Management**: Handles all versions/snapshots of toolkits and Projects across all branches
+- **Version Limiting**: Optional `--max-versions` flag to limit the number of versions analyzed per project for improved performance
+- **API Caching**: Built-in caching of API GET calls with configurable TTL to reduce server load and improve performance
 - **Batch Migration**: Can migrate all Projects or specific ones
 - **Comprehensive Logging**: Detailed logging for troubleshooting and audit trails
 
@@ -57,6 +59,7 @@ Analyzes the source system and generates a JSON file containing an ordered list 
 | `--output` | Output JSON file path (default: transfer-plan.json) | No |
 | `--ignore-branches` | Only include snapshots from the default branch | No |
 | `--filter-target-environments` | Comma-separated list of target environments to exclude from the plan (values: BAW_tWAS,BAW,BAW_CP4A,BAW_Liberty) | No |
+| `--max-versions` | Maximum number of versions (snapshots) to analyze per project (default: unlimited) | No |
 | `--help` | Print help message | No |
 
 *Either `--project`, `--projects`, or `--all` must be specified.
@@ -102,6 +105,17 @@ java -cp target/baw-project-export-import-1.0.0-jar-with-dependencies.jar \
   --target-url https://target:9443 \
   --project "My Process App" \
   --filter-target-environments BAW_tWAS
+
+# Generate plan with version limiting (analyze only 5 most recent versions per project)
+# This significantly improves performance for projects with many versions
+java -cp target/baw-project-export-import-1.0.0-jar-with-dependencies.jar \
+  com.ibm.baw.migrator.WriteTransferPlan \
+  --source-url https://source:9443 \
+  --source-user admin \
+  --source-password pass1 \
+  --target-url https://target:9443 \
+  --project "My Process App" \
+  --max-versions 5
 ```
 
 ### Stage 2: Execute Transfer (TransferProjects)
@@ -151,6 +165,7 @@ The original single-stage approach is still available for backward compatibility
 | `--all` | Migrate all projects | No* |
 | `--export-dir` | Directory for exported files (default: ./exports) | No |
 | `--ignore-branches` | Only export/import snapshots from the default branch | No |
+| `--max-versions` | Maximum number of versions (snapshots) to analyze per project (default: unlimited) | No |
 | `--help` | Print help message | No |
 
 *Either `--project`, `--projects`, or `--all` must be specified.
@@ -178,6 +193,17 @@ java -jar target/baw-project-export-import-1.0.0-jar-with-dependencies.jar \
   --target-password pass2 \
   --project "My Process App" \
   --ignore-branches
+
+# Migrate with version limiting (analyze only 5 most recent versions per project)
+java -jar target/baw-project-export-import-1.0.0-jar-with-dependencies.jar \
+  --source-url https://source:9443 \
+  --source-user admin \
+  --source-password pass1 \
+  --target-url https://target:9443 \
+  --target-user admin \
+  --target-password pass2 \
+  --project "My Process App" \
+  --max-versions 5
 ```
 
 **Note**:
@@ -253,6 +279,48 @@ java -jar target/baw-project-export-import-1.0.0-jar-with-dependencies.jar \
 
 The original approach combines all steps above into a single execution, performing analysis, export, and import in one run without generating an intermediate plan file.
 
+### Performance Optimization
+
+#### API Caching
+
+The application includes built-in caching for all API GET calls to improve performance:
+
+- **Automatic Caching**: All GET requests are cached with a default TTL of 5 minutes
+- **Thread-Safe**: Uses ConcurrentHashMap for thread-safe caching
+- **Automatic Expiration**: Cached entries automatically expire after the TTL period
+- **Reduced Server Load**: Significantly reduces the number of API calls to the BAW server
+
+Cached API calls include:
+- Project lists and details
+- Branch information
+- Snapshot lists and details
+- Dependency information
+
+#### Version Limiting
+
+For projects with many versions, use the `--max-versions` flag to limit the number of versions analyzed:
+
+```bash
+# Analyze only the 5 most recent versions per project
+--max-versions 5
+```
+
+**Benefits:**
+- **Faster Analysis**: Reduces the number of API calls and processing time
+- **Reduced Memory Usage**: Processes fewer snapshots
+- **Focused Migration**: Migrates only the most recent versions
+
+**How it works:**
+- Limits the number of snapshots analyzed per project/branch
+- Selects the N most recent snapshots (by creation date)
+- Applies to both the main project and all dependent toolkits
+- Does not affect the total number of projects analyzed
+
+**When to use:**
+- Projects with many historical versions that don't need to be migrated
+- Performance issues with large-scale migrations
+- Testing migrations with a subset of versions
+
 ### Dependency Resolution Algorithm
 
 The application uses a depth-first search algorithm to resolve dependencies:
@@ -260,18 +328,18 @@ The application uses a depth-first search algorithm to resolve dependencies:
 ```
 For each Process App:
   For each branch (or just default branch if --ignore-branches):
-    For each snapshot in branch:
+    For each snapshot in branch (limited by --max-versions if specified):
       Extract toolkit dependencies
       For each toolkit dependency:
         If not system toolkit:
           Add to dependency tree
           For each branch of toolkit (or just default):
-            Collect all snapshots from branch
+            Collect snapshots from branch (limited by --max-versions if specified)
           Recursively resolve toolkit's dependencies
           Calculate depth (leaf nodes have highest depth)
         
 Sort all dependencies by depth (descending)
-Export and import in sorted order (all branches, all snapshots)
+Export and import in sorted order (all branches, limited snapshots)
 ```
 
 ### API Endpoints Used
@@ -416,6 +484,14 @@ For issues or questions:
 3. Consult IBM BAW documentation for API details
 
 ## Version History
+
+### 2.1.0 (Performance Enhancements)
+- **NEW**: API caching for all GET calls with configurable TTL (default: 500 minutes)
+- **NEW**: `--max-versions` flag to limit the number of versions analyzed per project
+- **IMPROVED**: Significantly better performance for projects with many versions
+- **IMPROVED**: Reduced server load through intelligent caching
+- Cache management methods: clearCache(), invalidateCache(), getCacheStats()
+- Thread-safe caching implementation using ConcurrentHashMap
 
 ### 2.0.0 (Two-Stage Approach)
 - **NEW**: Two-stage migration process for better control

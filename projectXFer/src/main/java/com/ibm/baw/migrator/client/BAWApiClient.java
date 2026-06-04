@@ -46,6 +46,8 @@ import java.security.KeyManagementException;
 import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
 import java.util.Base64;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Client for interacting with IBM BAW Repository REST APIs
@@ -53,17 +55,57 @@ import java.util.Base64;
 public class BAWApiClient {
     private static final Logger logger = LoggerFactory.getLogger(BAWApiClient.class);
     private static final int MAX_RETRY_ATTEMPTS = 1; // Retry once on 401
+    private static final long DEFAULT_CACHE_TTL_MS = 500 * 60 * 1000; // 500 minutes default TTL
     
     private final String baseUrl;
     private final String authHeader;
     private String csrfToken;
     private final ObjectMapper objectMapper;
     private final CloseableHttpClient httpClient;
+    
+    // Cache infrastructure
+    private final Map<String, CacheEntry> cache;
+    private final long cacheTtlMs;
+    private final boolean cacheEnabled;
+    
+    /**
+     * Inner class to hold cached data with expiration time
+     */
+    private static class CacheEntry {
+        private final Object data;
+        private final long expirationTime;
+        
+        public CacheEntry(Object data, long ttlMs) {
+            this.data = data;
+            this.expirationTime = System.currentTimeMillis() + ttlMs;
+        }
+        
+        public Object getData() {
+            return data;
+        }
+        
+        public boolean isExpired() {
+            return System.currentTimeMillis() > expirationTime;
+        }
+    }
 
     /**
-     * Constructor that automatically obtains a CSRF token
+     * Constructor that automatically obtains a CSRF token with default cache settings
      */
     public BAWApiClient(String baseUrl, String username, String password) throws IOException {
+        this(baseUrl, username, password, true, DEFAULT_CACHE_TTL_MS);
+    }
+    
+    /**
+     * Constructor with configurable cache settings
+     *
+     * @param baseUrl The base URL of the BAW server
+     * @param username The username for authentication
+     * @param password The password for authentication
+     * @param cacheEnabled Whether to enable caching (default: true)
+     * @param cacheTtlMs Cache time-to-live in milliseconds (default: 5 minutes)
+     */
+    public BAWApiClient(String baseUrl, String username, String password, boolean cacheEnabled, long cacheTtlMs) throws IOException {
         this.baseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
         String auth = username + ":" + password;
         this.authHeader = "Basic " + Base64.getEncoder().encodeToString(auth.getBytes(StandardCharsets.UTF_8));
@@ -71,9 +113,14 @@ public class BAWApiClient {
         this.objectMapper.registerModule(new JavaTimeModule());
         this.httpClient = createInsecureHttpClient();
         
+        // Initialize cache
+        this.cacheEnabled = cacheEnabled;
+        this.cacheTtlMs = cacheTtlMs;
+        this.cache = new ConcurrentHashMap<>();
+        
         // Automatically obtain CSRF token
         this.csrfToken = obtainCsrfToken();
-        logger.info("Successfully obtained CSRF token");
+        logger.info("Successfully obtained CSRF token. Cache enabled: {}, TTL: {}ms", cacheEnabled, cacheTtlMs);
     }
 
     /**
@@ -183,12 +230,105 @@ public class BAWApiClient {
             throw e;
         }
     }
+    
+    /**
+     * Generate a cache key from method name and parameters
+     */
+    private String generateCacheKey(String methodName, String... params) {
+        StringBuilder key = new StringBuilder(methodName);
+        for (String param : params) {
+            key.append(":").append(param);
+        }
+        return key.toString();
+    }
+    
+    /**
+     * Get data from cache if available and not expired
+     *
+     * @param cacheKey The cache key
+     * @return The cached data or null if not found or expired
+     */
+    @SuppressWarnings("unchecked")
+    private <T> T getFromCache(String cacheKey) {
+        if (!cacheEnabled) {
+            return null;
+        }
+        
+        CacheEntry entry = cache.get(cacheKey);
+        if (entry == null) {
+            logger.debug("Cache miss for key: {}", cacheKey);
+            return null;
+        }
+        
+        if (entry.isExpired()) {
+            logger.debug("Cache entry expired for key: {}", cacheKey);
+            cache.remove(cacheKey);
+            return null;
+        }
+        
+        logger.debug("Cache hit for key: {}", cacheKey);
+        return (T) entry.getData();
+    }
+    
+    /**
+     * Put data into cache
+     *
+     * @param cacheKey The cache key
+     * @param data The data to cache
+     */
+    private void putInCache(String cacheKey, Object data) {
+        if (!cacheEnabled) {
+            return;
+        }
+        
+        cache.put(cacheKey, new CacheEntry(data, cacheTtlMs));
+        logger.debug("Cached data for key: {}", cacheKey);
+    }
+    
+    /**
+     * Clear all cached data
+     */
+    public void clearCache() {
+        cache.clear();
+        logger.info("Cache cleared");
+    }
+    
+    /**
+     * Invalidate a specific cache entry
+     *
+     * @param cacheKey The cache key to invalidate
+     */
+    public void invalidateCache(String cacheKey) {
+        cache.remove(cacheKey);
+        logger.debug("Invalidated cache for key: {}", cacheKey);
+    }
+    
+    /**
+     * Get cache statistics
+     *
+     * @return A string with cache statistics
+     */
+    public String getCacheStats() {
+        int totalEntries = cache.size();
+        long expiredEntries = cache.values().stream().filter(CacheEntry::isExpired).count();
+        return String.format("Cache stats - Total entries: %d, Expired: %d, Active: %d",
+                           totalEntries, expiredEntries, totalEntries - expiredEntries);
+    }
 
     /**
      * Get all projects from the repository
      */
     public ProjectsResponse getProjects() throws IOException {
-        return executeWithRetry(() -> {
+        String cacheKey = generateCacheKey("getProjects");
+        
+        // Try to get from cache first
+        ProjectsResponse cached = getFromCache(cacheKey);
+        if (cached != null) {
+            return cached;
+        }
+        
+        // If not in cache, fetch from API
+        ProjectsResponse result = executeWithRetry(() -> {
             String url = baseUrl + "/dba/studio/repo/projects?type=processapp,app,casesolution,general,decision,agent,content,digitalworker,automation_srvc";
             logger.info("Fetching projects from: {}", url);
             
@@ -214,13 +354,26 @@ public class BAWApiClient {
                 return objectMapper.readValue(responseBody, ProjectsResponse.class);
             }
         });
+        
+        // Cache the result
+        putInCache(cacheKey, result);
+        return result;
     }
 
     /**
      * Get a specific project by ID
      */
     public Project getProject(String projectId) throws IOException {
-        return executeWithRetry(() -> {
+        String cacheKey = generateCacheKey("getProject", projectId);
+        
+        // Try to get from cache first
+        Project cached = getFromCache(cacheKey);
+        if (cached != null) {
+            return cached;
+        }
+        
+        // If not in cache, fetch from API
+        Project result = executeWithRetry(() -> {
             String url = baseUrl + "/dba/studio/repo/projects/" + projectId;
             logger.info("Fetching project: {}", projectId);
             
@@ -247,13 +400,26 @@ public class BAWApiClient {
                 return objectMapper.readValue(responseBody, Project.class);
             }
         });
+        
+        // Cache the result
+        putInCache(cacheKey, result);
+        return result;
     }
 
     /**
      * Get all branches for a project
      */
     public BranchesResponse getBranches(String projectId) throws IOException {
-        return executeWithRetry(() -> {
+        String cacheKey = generateCacheKey("getBranches", projectId);
+        
+        // Try to get from cache first
+        BranchesResponse cached = getFromCache(cacheKey);
+        if (cached != null) {
+            return cached;
+        }
+        
+        // If not in cache, fetch from API
+        BranchesResponse result = executeWithRetry(() -> {
             String url = baseUrl + "/dba/studio/repo/projects/" + projectId + "/branches";
             logger.info("Fetching branches for project: {}", projectId);
             
@@ -280,13 +446,26 @@ public class BAWApiClient {
                 return objectMapper.readValue(responseBody, BranchesResponse.class);
             }
         });
+        
+        // Cache the result
+        putInCache(cacheKey, result);
+        return result;
     }
 
     /**
      * Get all snapshots for a project branch
      */
     public SnapshotsResponse getSnapshots(String projectId, String branchName) throws IOException {
-        return executeWithRetry(() -> {
+        String cacheKey = generateCacheKey("getSnapshots", projectId, branchName);
+        
+        // Try to get from cache first
+        SnapshotsResponse cached = getFromCache(cacheKey);
+        if (cached != null) {
+            return cached;
+        }
+        
+        // If not in cache, fetch from API
+        SnapshotsResponse result = executeWithRetry(() -> {
             String url = baseUrl + "/dba/studio/repo/projects/" + projectId + "/branches/" + branchName + "/snapshots";
             logger.info("Fetching snapshots for project: {}, branch: {}", projectId, branchName);
             
@@ -313,6 +492,10 @@ public class BAWApiClient {
                 return objectMapper.readValue(responseBody, SnapshotsResponse.class);
             }
         });
+        
+        // Cache the result
+        putInCache(cacheKey, result);
+        return result;
     }
 
     /**
@@ -408,7 +591,16 @@ public class BAWApiClient {
      * Uses the Artifact Management API endpoint
      */
     public Snapshot getSnapshotWithDependencies(String containerAcronym, String versionAcronym) throws IOException {
-        return executeWithRetry(() -> {
+        String cacheKey = generateCacheKey("getSnapshotWithDependencies", containerAcronym, versionAcronym);
+        
+        // Try to get from cache first
+        Snapshot cached = getFromCache(cacheKey);
+        if (cached != null) {
+            return cached;
+        }
+        
+        // If not in cache, fetch from API
+        Snapshot result = executeWithRetry(() -> {
             String url = baseUrl + "/artmgt/std/bpm/containers/" + containerAcronym +
                          "/versions/" + versionAcronym + "?optional_parts=dependencies";
             logger.info("Fetching snapshot with dependencies: container={}, version={}", containerAcronym, versionAcronym);
@@ -436,6 +628,10 @@ public class BAWApiClient {
                 return objectMapper.readValue(responseBody, Snapshot.class);
             }
         });
+        
+        // Cache the result
+        putInCache(cacheKey, result);
+        return result;
     }
 
     /**
@@ -443,7 +639,16 @@ public class BAWApiClient {
      * This is more efficient than recursive calls as it returns the complete tree
      */
     public WhatUsedResponse getWhatUsed(String containerAcronym, String versionAcronym) throws IOException {
-        return executeWithRetry(() -> {
+        String cacheKey = generateCacheKey("getWhatUsed", containerAcronym, versionAcronym);
+        
+        // Try to get from cache first
+        WhatUsedResponse cached = getFromCache(cacheKey);
+        if (cached != null) {
+            return cached;
+        }
+        
+        // If not in cache, fetch from API
+        WhatUsedResponse result = executeWithRetry(() -> {
             String url = baseUrl + "/artmgt/std/bpm/containers/" + containerAcronym +
                          "/versions/" + versionAcronym + "/what_used?optional_parts=advanced_info";
             logger.info("Fetching dependency tree (what_used): container={}, version={}", containerAcronym, versionAcronym);
@@ -471,6 +676,10 @@ public class BAWApiClient {
                 return objectMapper.readValue(responseBody, WhatUsedResponse.class);
             }
         });
+        
+        // Cache the result
+        putInCache(cacheKey, result);
+        return result;
     }
 
     /**
@@ -478,7 +687,16 @@ public class BAWApiClient {
      * GET /projects/{project_id}/branches/{branch_name}/snapshots/{snapshot_name}
      */
     public Snapshot getSnapshotDetails(String projectId, String branchName, String snapshotName) throws IOException {
-        return executeWithRetry(() -> {
+        String cacheKey = generateCacheKey("getSnapshotDetails", projectId, branchName, snapshotName);
+        
+        // Try to get from cache first
+        Snapshot cached = getFromCache(cacheKey);
+        if (cached != null) {
+            return cached;
+        }
+        
+        // If not in cache, fetch from API
+        Snapshot result = executeWithRetry(() -> {
             String url = baseUrl + "/dba/studio/repo/projects/" + projectId + "/branches/" + branchName +
                          "/snapshots/" + snapshotName;
             logger.info("Fetching snapshot details: project={}, branch={}, snapshot={}", projectId, branchName, snapshotName);
@@ -507,6 +725,10 @@ public class BAWApiClient {
                 return objectMapper.readValue(responseBody, Snapshot.class);
             }
         });
+        
+        // Cache the result
+        putInCache(cacheKey, result);
+        return result;
     }
 
     /**
