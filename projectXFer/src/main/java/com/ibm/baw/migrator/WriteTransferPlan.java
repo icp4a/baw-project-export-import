@@ -182,7 +182,8 @@ public class WriteTransferPlan {
                         sourceClient,
                         processApp,
                         ignoreBranches,
-                        filteredEnvironments
+                        filteredEnvironments,
+                        maxVersions
                     );
                     plan.getProcessApps().add(processAppItem);
                     
@@ -299,7 +300,8 @@ public class WriteTransferPlan {
             BAWApiClient client,
             Project processApp,
             boolean ignoreBranches,
-            Set<String> filteredEnvironments) throws IOException {
+            Set<String> filteredEnvironments,
+            int maxVersions) throws IOException {
         
         // Get branches to process
         List<Branch> branchesToProcess = getBranchesToProcess(client, processApp, ignoreBranches);
@@ -318,7 +320,20 @@ public class WriteTransferPlan {
                 List<Snapshot> sortedSnapshots = new ArrayList<>(snapshotsResponse.getSnapshots());
                 sortedSnapshots.sort(Comparator.comparing(Snapshot::getCreationDate,
                                                          Comparator.nullsLast(String::compareTo)));
-                branchSnapshots.put(branch.getName(), sortedSnapshots);
+                
+                // Limit the number of snapshots if maxVersions is set
+                List<Snapshot> snapshotsToInclude = sortedSnapshots;
+                if (maxVersions > 0 && sortedSnapshots.size() > maxVersions) {
+                    // Take the LATEST snapshots (last N in the sorted list)
+                    snapshotsToInclude = sortedSnapshots.subList(
+                        sortedSnapshots.size() - maxVersions,
+                        sortedSnapshots.size()
+                    );
+                    logger.info("Limiting Process App to {} latest snapshots (out of {}) for branch: {}",
+                               snapshotsToInclude.size(), sortedSnapshots.size(), branch.getName());
+                }
+                
+                branchSnapshots.put(branch.getName(), snapshotsToInclude);
             }
         }
         

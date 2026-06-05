@@ -82,17 +82,19 @@ public class DependencyResolver {
                 continue;
             }
 
+            // Sort snapshots by creation date (oldest first)
+            List<Snapshot> sortedSnapshots = sortSnapshotsByDate(snapshotsResponse.getSnapshots());
+            
             // Limit the number of snapshots to analyze if maxVersions is set
-            List<Snapshot> snapshotsToAnalyze = snapshotsResponse.getSnapshots();
-            if (maxVersions > 0 && snapshotsToAnalyze.size() > maxVersions) {
-                // Sort by creation date and take the most recent snapshots
-                List<Snapshot> sortedSnapshots = sortSnapshotsByDate(snapshotsToAnalyze);
+            List<Snapshot> snapshotsToAnalyze = sortedSnapshots;
+            if (maxVersions > 0 && sortedSnapshots.size() > maxVersions) {
+                // Take the LATEST snapshots (last N in the sorted list, since sorted oldest first)
                 snapshotsToAnalyze = sortedSnapshots.subList(
-                    Math.max(0, sortedSnapshots.size() - maxVersions),
+                    sortedSnapshots.size() - maxVersions,
                     sortedSnapshots.size()
                 );
-                logger.info("Limiting dependency analysis to {} most recent snapshots (out of {}) for project: {} on branch: {}",
-                           snapshotsToAnalyze.size(), snapshotsResponse.getSnapshots().size(),
+                logger.info("Limiting dependency analysis to {} latest snapshots (out of {}) for project: {} on branch: {}",
+                           snapshotsToAnalyze.size(), sortedSnapshots.size(),
                            project.getDisplayName(), branch.getName());
             }
 
@@ -232,20 +234,23 @@ public class DependencyResolver {
                 continue;
             }
             
+            // Sort snapshots by creation date (oldest first)
+            List<Snapshot> sortedSnapshots = sortSnapshotsByDate(toolkitSnapshots);
+            
             // Limit the number of snapshots if maxVersions is set
-            List<Snapshot> snapshotsToInclude = toolkitSnapshots;
-            if (maxVersions > 0 && toolkitSnapshots.size() > maxVersions) {
-                // Take the most recent snapshots (last N in the sorted list)
-                snapshotsToInclude = toolkitSnapshots.subList(
-                    Math.max(0, toolkitSnapshots.size() - maxVersions),
-                    toolkitSnapshots.size()
+            List<Snapshot> snapshotsToInclude = sortedSnapshots;
+            if (maxVersions > 0 && sortedSnapshots.size() > maxVersions) {
+                // Take the LATEST snapshots (last N in the sorted list, since sorted oldest first)
+                snapshotsToInclude = sortedSnapshots.subList(
+                    sortedSnapshots.size() - maxVersions,
+                    sortedSnapshots.size()
                 );
-                logger.info("Limiting to {} most recent snapshots (out of {}) for toolkit: {} on branch: {}",
-                           snapshotsToInclude.size(), toolkitSnapshots.size(), fullProject.getName(), branch.getName());
+                logger.info("Limiting to {} latest snapshots (out of {}) for toolkit: {} on branch: {}",
+                           snapshotsToInclude.size(), sortedSnapshots.size(), fullProject.getName(), branch.getName());
             }
             
-            // Add only the limited snapshots for this branch
-            existingDep.addBranchSnapshots(branch.getName(), sortSnapshotsByDate(snapshotsToInclude));
+            // Add only the limited snapshots for this branch (already sorted)
+            existingDep.addBranchSnapshots(branch.getName(), snapshotsToInclude);
             logger.debug("Added {} snapshots from branch: {} for toolkit: {}",
                         snapshotsToInclude.size(), branch.getName(), fullProject.getName());
             
