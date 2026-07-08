@@ -63,6 +63,7 @@ public class WriteTransferPlan {
             String projectsAcronyms = cmd.getOptionValue("projects");
             boolean migrateAll = cmd.hasOption("all");
             boolean ignoreBranches = cmd.hasOption("ignore-branches");
+            boolean onlyIncludeRequiredToolkits = cmd.hasOption("only-include-required-toolkits");
             String filterTargetEnvironments = cmd.getOptionValue("filter-target-environments");
             int maxVersions = -1; // -1 means no limit
             if (cmd.hasOption("max-versions")) {
@@ -104,7 +105,19 @@ public class WriteTransferPlan {
             plan.setCreatedAt(Instant.now().toString());
 
             // Create dependency resolver
-            DependencyResolver dependencyResolver = new DependencyResolver(sourceClient, ignoreBranches, maxVersions);
+            // If --only-include-required-toolkits is set, don't apply maxVersions limit to toolkits
+            // (it should only apply to Process Apps in that case)
+            int toolkitMaxVersions = onlyIncludeRequiredToolkits ? -1 : maxVersions;
+            DependencyResolver dependencyResolver = new DependencyResolver(sourceClient, ignoreBranches, toolkitMaxVersions);
+            
+            if (onlyIncludeRequiredToolkits) {
+                if (maxVersions > 0) {
+                    logger.info("--only-include-required-toolkits is set: maxVersions ({}) will only apply to Process Apps, not toolkits", maxVersions);
+                }
+                if (!filteredEnvironments.isEmpty()) {
+                    logger.info("--only-include-required-toolkits is set: target environment filtering will only apply to Process Apps, not required toolkits");
+                }
+            }
 
             // Determine which projects to process
             List<Project> projectsToMigrate = new ArrayList<>();
@@ -152,6 +165,10 @@ public class WriteTransferPlan {
 
             // Track all toolkits across all process apps
             Map<String, TransferPlan.TransferItem> allToolkits = new LinkedHashMap<>();
+            
+            // Track required toolkit snapshots if filtering is enabled
+            // Map: toolkit acronym -> Set of required snapshot names
+            Map<String, Set<String>> requiredToolkitSnapshots = new HashMap<>();
 
             // Process each project
             for (Project processApp : projectsToMigrate) {
@@ -165,13 +182,18 @@ public class WriteTransferPlan {
                     for (ToolkitDependency dependency : dependencies) {
                         String toolkitKey = dependency.getProject().getId();
                         if (!allToolkits.containsKey(toolkitKey)) {
+                            // If --only-include-required-toolkits is set, don't filter toolkits by target environment
+                            // since they are required regardless of their target environment
+                            Set<String> toolkitFilteredEnvironments = onlyIncludeRequiredToolkits ?
+                                Collections.emptySet() : filteredEnvironments;
+                            
                             TransferPlan.TransferItem item = createTransferItem(
                                 sourceClient,
                                 dependency.getProject(),
                                 dependency.getBranchSnapshots(),
                                 dependency.getDepth(),
                                 true,
-                                filteredEnvironments
+                                toolkitFilteredEnvironments
                             );
                             allToolkits.put(toolkitKey, item);
                         }
@@ -187,13 +209,35 @@ public class WriteTransferPlan {
                     );
                     plan.getProcessApps().add(processAppItem);
                     
+                    // If filtering is enabled, collect required toolkit snapshots from this Process App
+                    if (onlyIncludeRequiredToolkits) {
+                        collectRequiredToolkitSnapshots(
+                            sourceClient,
+                            processApp,
+                            processAppItem,
+                            requiredToolkitSnapshots
+                        );
+                    }
+                    
                 } catch (Exception e) {
                     logger.error("Failed to analyze Process App: {}", processApp.getDisplayName(), e);
                 }
             }
 
-            // Add all toolkits to the plan (already sorted by depth)
-            plan.getToolkits().addAll(allToolkits.values());
+            // Filter toolkits if requested
+            if (onlyIncludeRequiredToolkits) {
+                logger.info("Filtering toolkits to only include required versions");
+                List<TransferPlan.TransferItem> filteredToolkits = filterRequiredToolkits(
+                    allToolkits.values(),
+                    requiredToolkitSnapshots
+                );
+                plan.getToolkits().addAll(filteredToolkits);
+                logger.info("Filtered to {} toolkit versions (from {} total toolkits)",
+                           plan.getToolkits().size(), allToolkits.size());
+            } else {
+                // Add all toolkits to the plan (already sorted by depth)
+                plan.getToolkits().addAll(allToolkits.values());
+            }
 
             // Write the plan to JSON file
             ObjectMapper mapper = new ObjectMapper();
@@ -457,6 +501,11 @@ public class WriteTransferPlan {
                 .desc("Maximum number of versions (snapshots) to analyze per project during dependency resolution (default: unlimited)")
                 .build());
 
+        options.addOption(Option.builder("ort")
+                .longOpt("only-include-required-toolkits")
+                .desc("Only include toolkit versions that are required by the resulting Process App list (filters out unused versions)")
+                .build());
+
         options.addOption(Option.builder("h")
                 .longOpt("help")
                 .desc("Print this help message")
@@ -544,6 +593,160 @@ public class WriteTransferPlan {
         }
         
         return null;
+    }
+
+    /**
+     * Collect required toolkit snapshots from a Process App's snapshots
+     * This uses the what_used API to get the complete dependency tree including
+     * specific toolkit versions (container + snapshot)
+     */
+    private static void collectRequiredToolkitSnapshots(
+            BAWApiClient client,
+            Project processApp,
+            TransferPlan.TransferItem processAppItem,
+            Map<String, Set<String>> requiredToolkitSnapshots) {
+        
+        logger.info("Collecting required toolkit snapshots for Process App: {}",
+                   processApp.getDisplayName());
+        
+        // Iterate through all branches and snapshots of the Process App
+        for (TransferPlan.BranchSnapshots branchSnaps : processAppItem.getBranches()) {
+            for (TransferPlan.SnapshotInfo snapshot : branchSnaps.getSnapshots()) {
+                try {
+                    // Use what_used API to get the complete dependency tree with specific versions
+                    WhatUsedResponse whatUsed = client.getWhatUsed(
+                        processApp.getAcronym(),
+                        snapshot.getSnapshotName()
+                    );
+                    
+                    if (whatUsed.getToolkitsUsed() != null) {
+                        // Recursively collect all toolkit versions from the dependency tree
+                        collectToolkitVersionsRecursive(whatUsed.getToolkitsUsed(), requiredToolkitSnapshots);
+                    }
+                } catch (IOException e) {
+                    logger.warn("Failed to get dependencies for snapshot {}: {}",
+                               snapshot.getSnapshotName(), e.getMessage());
+                }
+            }
+        }
+        
+        // Log summary
+        int totalVersions = requiredToolkitSnapshots.values().stream()
+            .mapToInt(Set::size)
+            .sum();
+        logger.info("Collected {} required toolkit versions across {} toolkits",
+                   totalVersions, requiredToolkitSnapshots.size());
+    }
+    
+    /**
+     * Recursively collect toolkit versions from the dependency tree
+     * This processes the nested structure returned by what_used API
+     */
+    private static void collectToolkitVersionsRecursive(
+            List<ToolkitVersionUsed> toolkitsUsed,
+            Map<String, Set<String>> requiredToolkitSnapshots) {
+        
+        if (toolkitsUsed == null || toolkitsUsed.isEmpty()) {
+            return;
+        }
+        
+        for (ToolkitVersionUsed toolkit : toolkitsUsed) {
+            String containerAcronym = toolkit.getContainer();
+            String snapshotName = toolkit.getSnapshotName();
+            
+            if (containerAcronym != null && snapshotName != null) {
+                // Add this specific toolkit version to the required set
+                requiredToolkitSnapshots.putIfAbsent(containerAcronym, new HashSet<>());
+                requiredToolkitSnapshots.get(containerAcronym).add(snapshotName);
+                
+                logger.debug("Required toolkit version: {} snapshot: {}",
+                           containerAcronym, snapshotName);
+            }
+            
+            // Recursively process nested dependencies
+            if (toolkit.getToolkitsUsed() != null && !toolkit.getToolkitsUsed().isEmpty()) {
+                collectToolkitVersionsRecursive(toolkit.getToolkitsUsed(), requiredToolkitSnapshots);
+            }
+        }
+    }
+
+    /**
+     * Filter toolkits to only include versions (snapshots) that are required by the Process Apps
+     * This method filters toolkit snapshots to only include those specific versions that are
+     * actually needed, keeping them in oldest to newest order
+     */
+    private static List<TransferPlan.TransferItem> filterRequiredToolkits(
+            Collection<TransferPlan.TransferItem> allToolkits,
+            Map<String, Set<String>> requiredToolkitSnapshots) {
+        
+        List<TransferPlan.TransferItem> filteredToolkits = new ArrayList<>();
+        
+        // For each toolkit, filter its snapshots to only include required versions
+        for (TransferPlan.TransferItem toolkit : allToolkits) {
+            String toolkitAcronym = toolkit.getProjectAcronym();
+            
+            // Check if this toolkit has any required snapshots
+            Set<String> requiredSnapshots = requiredToolkitSnapshots.get(toolkitAcronym);
+            if (requiredSnapshots == null || requiredSnapshots.isEmpty()) {
+                logger.debug("Excluding toolkit: {} (not required by any Process App)",
+                           toolkit.getDisplayName());
+                continue;
+            }
+            
+            // Create a filtered version of this toolkit with only required snapshots
+            TransferPlan.TransferItem filteredToolkit = new TransferPlan.TransferItem();
+            filteredToolkit.setProjectId(toolkit.getProjectId());
+            filteredToolkit.setProjectName(toolkit.getProjectName());
+            filteredToolkit.setProjectAcronym(toolkit.getProjectAcronym());
+            filteredToolkit.setDisplayName(toolkit.getDisplayName());
+            filteredToolkit.setToolkit(toolkit.isToolkit());
+            filteredToolkit.setDepth(toolkit.getDepth());
+            
+            int originalSnapshotCount = 0;
+            int filteredSnapshotCount = 0;
+            
+            // Process each branch
+            for (TransferPlan.BranchSnapshots branchSnaps : toolkit.getBranches()) {
+                TransferPlan.BranchSnapshots filteredBranch = new TransferPlan.BranchSnapshots();
+                filteredBranch.setBranchName(branchSnaps.getBranchName());
+                filteredBranch.setDefault(branchSnaps.isDefault());
+                
+                // Filter snapshots to only include required ones (already sorted oldest to newest)
+                for (TransferPlan.SnapshotInfo snapshot : branchSnaps.getSnapshots()) {
+                    originalSnapshotCount++;
+                    
+                    // Check if this specific snapshot is required
+                    if (requiredSnapshots.contains(snapshot.getDisplayName())) {
+                        filteredBranch.getSnapshots().add(snapshot);
+                        filteredSnapshotCount++;
+                        logger.debug("Including required snapshot: {} for toolkit: {}",
+                                   snapshot.getSnapshotName(), toolkitAcronym);
+                    }
+                }
+                
+                // Only add branch if it has required snapshots
+                if (!filteredBranch.getSnapshots().isEmpty()) {
+                    filteredToolkit.getBranches().add(filteredBranch);
+                }
+            }
+            
+            // Only add toolkit if it has required snapshots after filtering
+            if (!filteredToolkit.getBranches().isEmpty()) {
+                filteredToolkits.add(filteredToolkit);
+                logger.info("Including toolkit: {} with {} required snapshots (filtered from {} total)",
+                           toolkit.getDisplayName(), filteredSnapshotCount, originalSnapshotCount);
+            }
+        }
+        
+        int totalFilteredSnapshots = filteredToolkits.stream()
+            .flatMap(t -> t.getBranches().stream())
+            .mapToInt(b -> b.getSnapshots().size())
+            .sum();
+            
+        logger.info("Filtered toolkits: kept {} toolkits with {} total snapshots (from {} original toolkits)",
+                   filteredToolkits.size(), totalFilteredSnapshots, allToolkits.size());
+        
+        return filteredToolkits;
     }
 }
 

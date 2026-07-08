@@ -60,6 +60,7 @@ Analyzes the source system and generates a JSON file containing an ordered list 
 | `--ignore-branches` | Only include snapshots from the default branch | No |
 | `--filter-target-environments` | Comma-separated list of target environments to exclude from the plan (values: BAW_tWAS,BAW,BAW_CP4A,BAW_Liberty) | No |
 | `--max-versions` | Maximum number of versions (snapshots) to analyze per project (default: unlimited) | No |
+| `--only-include-required-toolkits` | Only include toolkit versions that are required by the Process Apps (filters out unused versions) | No |
 | `--help` | Print help message | No |
 
 *Either `--project`, `--projects`, or `--all` must be specified.
@@ -116,6 +117,29 @@ java -cp target/baw-project-export-import-1.0.0-jar-with-dependencies.jar \
   --target-url https://target:9443 \
   --project "My Process App" \
   --max-versions 5
+
+# Generate plan with only required toolkit versions
+# This includes only the specific toolkit snapshots that are actually used by the Process Apps
+java -cp target/baw-project-export-import-1.0.0-jar-with-dependencies.jar \
+  com.ibm.baw.migrator.WriteTransferPlan \
+  --source-url https://source:9443 \
+  --source-user admin \
+  --source-password pass1 \
+  --target-url https://target:9443 \
+  --project "My Process App" \
+  --only-include-required-toolkits
+
+# Combine version limiting with required toolkit filtering
+# Limits Process Apps to 5 versions, includes only required toolkit versions (no limit on toolkit versions)
+java -cp target/baw-project-export-import-1.0.0-jar-with-dependencies.jar \
+  com.ibm.baw.migrator.WriteTransferPlan \
+  --source-url https://source:9443 \
+  --source-user admin \
+  --source-password pass1 \
+  --target-url https://target:9443 \
+  --project "My Process App" \
+  --max-versions 5 \
+  --only-include-required-toolkits
 ```
 
 ### Stage 2: Execute Transfer (TransferProjects)
@@ -234,6 +258,7 @@ java -jar target/baw-project-export-import-1.0.0-jar-with-dependencies.jar \
    - Recursively processes dependencies (toolkits may depend on other toolkits)
    - For each toolkit dependency, retrieves snapshots from all branches (or just default branch)
    - Filters out system toolkits
+   - If `--only-include-required-toolkits` is specified, tracks the specific toolkit versions used by each Process App snapshot
 
 5. **Dependency Ordering**:
    - Calculates dependency depth for each toolkit
@@ -245,11 +270,16 @@ java -jar target/baw-project-export-import-1.0.0-jar-with-dependencies.jar \
    - Excludes snapshots whose target environment matches any in the filter list
    - Target environment information is included in the generated JSON for all remaining snapshots
 
-7. **Plan Generation**:
+7. **Toolkit Filtering** (Optional):
+   - If `--only-include-required-toolkits` is specified, filters the toolkit list
+   - Only includes toolkit snapshots that are actually referenced by the Process Apps
+   - Maintains oldest-to-newest ordering within each toolkit
+
+8. **Plan Generation**:
    - Creates a JSON file containing:
      - Source and target URLs
      - Export directory configuration
-     - Ordered list of all toolkits with their snapshots (including target environment)
+     - Ordered list of toolkits with their snapshots (filtered if `--only-include-required-toolkits` was used)
      - Ordered list of all Process Apps with their snapshots (including target environment)
    - The plan can be reviewed and modified before execution
 
@@ -313,13 +343,82 @@ For projects with many versions, use the `--max-versions` flag to limit the numb
 **How it works:**
 - Limits the number of snapshots analyzed per project/branch
 - Selects the N most recent snapshots (by creation date)
-- Applies to both the main project and all dependent toolkits
+- Applies to both Process Apps and toolkits (unless `--only-include-required-toolkits` is also specified)
 - Does not affect the total number of projects analyzed
 
 **When to use:**
 - Projects with many historical versions that don't need to be migrated
 - Performance issues with large-scale migrations
 - Testing migrations with a subset of versions
+
+#### Required Toolkit Filtering
+
+Use the `--only-include-required-toolkits` flag to include only the specific toolkit versions that are actually used by the Process Apps:
+
+```bash
+# Include only required toolkit versions
+--only-include-required-toolkits
+```
+
+**Benefits:**
+- **Reduced Migration Size**: Only migrates toolkit versions that are actually needed
+- **Faster Migration**: Fewer toolkit snapshots to export and import
+- **Cleaner Target Environment**: Avoids migrating unused toolkit versions
+
+**How it works:**
+- Uses the `what_used` API to analyze each Process App snapshot's dependencies
+- Recursively collects all required toolkit versions (including nested dependencies)
+- Filters the toolkit list to only include those specific versions
+- Maintains oldest-to-newest ordering within each toolkit
+
+**When to use:**
+- When toolkits have many versions but only some are used by the Process Apps
+- To minimize the migration footprint
+- When you want to avoid migrating unused toolkit versions
+
+#### Flag Interactions with --only-include-required-toolkits
+
+When `--only-include-required-toolkits` is used, it changes how other flags behave:
+
+**With --max-versions:**
+
+| Flag Combination | Process Apps | Toolkits |
+|------------------|--------------|----------|
+| `--max-versions` only | Limited to N versions | Limited to N versions |
+| `--only-include-required-toolkits` only | All versions | Only required versions |
+| Both flags together | Limited to N versions | Only required versions (no limit) |
+
+**With --filter-target-environments:**
+
+| Flag Combination | Process Apps | Toolkits |
+|------------------|--------------|----------|
+| `--filter-target-environments` only | Filtered by target env | Filtered by target env |
+| `--only-include-required-toolkits` only | All snapshots | Only required versions |
+| Both flags together | Filtered by target env | Only required versions (not filtered by target env) |
+
+**Rationale:**
+- When `--only-include-required-toolkits` is specified, required toolkits are included regardless of their target environment
+- This ensures all necessary toolkit dependencies are migrated, even if they have target environments in the filter list
+- The `--filter-target-environments` flag still applies to Process App snapshots
+
+**Examples:**
+```bash
+# Limit Process Apps to 5 versions, include all required toolkit versions
+--max-versions 5 --only-include-required-toolkits
+
+# Filter Process App snapshots by target environment, include all required toolkit versions
+--filter-target-environments BAW_tWAS --only-include-required-toolkits
+
+# Combine all three flags
+--max-versions 5 --filter-target-environments BAW_tWAS --only-include-required-toolkits
+```
+
+These combinations are useful when:
+- You want to migrate only recent Process App versions
+- But need all toolkit versions that those Process Apps depend on
+- The `--max-versions` limit ensures fast analysis of Process Apps
+- The `--only-include-required-toolkits` ensures you get all necessary toolkit versions
+- Target environment filtering applies only to Process Apps, not required toolkits
 
 ### Dependency Resolution Algorithm
 
@@ -329,17 +428,27 @@ The application uses a depth-first search algorithm to resolve dependencies:
 For each Process App:
   For each branch (or just default branch if --ignore-branches):
     For each snapshot in branch (limited by --max-versions if specified):
-      Extract toolkit dependencies
+      Extract toolkit dependencies using what_used API
+      
+      If --only-include-required-toolkits is specified:
+        Track specific toolkit versions (container + snapshot) used by this Process App snapshot
+        Recursively track nested toolkit dependencies
+      
       For each toolkit dependency:
         If not system toolkit:
           Add to dependency tree
           For each branch of toolkit (or just default):
-            Collect snapshots from branch (limited by --max-versions if specified)
+            Collect snapshots from branch (limited by --max-versions if NOT using --only-include-required-toolkits)
           Recursively resolve toolkit's dependencies
           Calculate depth (leaf nodes have highest depth)
-        
+
 Sort all dependencies by depth (descending)
-Export and import in sorted order (all branches, limited snapshots)
+
+If --only-include-required-toolkits is specified:
+  Filter toolkit list to only include required versions
+  Maintain oldest-to-newest ordering within each toolkit
+
+Export and import in sorted order
 ```
 
 ### API Endpoints Used
@@ -484,6 +593,15 @@ For issues or questions:
 3. Consult IBM BAW documentation for API details
 
 ## Version History
+
+### 2.2.0 (Toolkit Filtering)
+- **NEW**: `--only-include-required-toolkits` flag to include only toolkit versions required by Process Apps
+- **NEW**: Uses `what_used` API to precisely track toolkit dependencies with specific versions
+- **NEW**: Recursive dependency tracking for nested toolkit dependencies
+- **IMPROVED**: Smart interaction between `--max-versions` and `--only-include-required-toolkits` flags
+- **IMPROVED**: Reduced migration footprint by filtering out unused toolkit versions
+- When both flags are used: `--max-versions` applies only to Process Apps, not toolkits
+- Maintains oldest-to-newest ordering of toolkit versions
 
 ### 2.1.0 (Performance Enhancements)
 - **NEW**: API caching for all GET calls with configurable TTL (default: 500 minutes)

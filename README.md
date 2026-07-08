@@ -53,6 +53,8 @@ Analyzes the source system and generates a JSON file containing an ordered list 
 | `--output` | Output JSON file path (default: transfer-plan.json) | No |
 | `--ignore-branches` | Only include snapshots from the default branch | No |
 | `--filter-target-environments` | Comma-separated list of target environments to exclude from the plan (values: BAW_tWAS, BAW, BAW_CP4A, BAW_Liberty) | No |
+| `--max-versions` | Maximum number of versions (snapshots) to analyze per project (default: unlimited) | No |
+| `--only-include-required-toolkits` | Only include toolkit versions that are required by the Process Apps (filters out unused versions) | No |
 | `--help` | Print help message | No |
 
 *Either `--project`, `--projects`, or `--all` must be specified.
@@ -98,6 +100,40 @@ java -cp baw-project-export-import-1.0.0-jar-with-dependencies.jar \
   --target-url https://target:9443 \
   --project "My Process App" \
   --filter-target-environments BAW_tWAS
+
+# Generate plan with version limiting (analyze only 5 most recent versions per project)
+# This significantly improves performance for projects with many versions
+java -cp target/baw-project-export-import-1.0.0-jar-with-dependencies.jar \
+  com.ibm.baw.migrator.WriteTransferPlan \
+  --source-url https://source:9443 \
+  --source-user admin \
+  --source-password pass1 \
+  --target-url https://target:9443 \
+  --project "My Process App" \
+  --max-versions 5
+
+# Generate plan with only required toolkit versions
+# This includes only the specific toolkit snapshots that are actually used by the Process Apps
+java -cp target/baw-project-export-import-1.0.0-jar-with-dependencies.jar \
+  com.ibm.baw.migrator.WriteTransferPlan \
+  --source-url https://source:9443 \
+  --source-user admin \
+  --source-password pass1 \
+  --target-url https://target:9443 \
+  --project "My Process App" \
+  --only-include-required-toolkits
+
+# Combine version limiting with required toolkit filtering
+# Limits Process Apps to 5 versions, includes only required toolkit versions (no limit on toolkit versions)
+java -cp target/baw-project-export-import-1.0.0-jar-with-dependencies.jar \
+  com.ibm.baw.migrator.WriteTransferPlan \
+  --source-url https://source:9443 \
+  --source-user admin \
+  --source-password pass1 \
+  --target-url https://target:9443 \
+  --project "My Process App" \
+  --max-versions 5 \
+  --only-include-required-toolkits
 ```
 
 ### Stage 2: Execute Transfer (TransferProjects)
