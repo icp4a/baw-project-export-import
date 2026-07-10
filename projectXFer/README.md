@@ -14,7 +14,7 @@ A Java application that exports IBM Business Automation Workflow (BAW) Workflow 
 
 ## Prerequisites
 
-- Java 8 (JDK 1.8) or higher
+- Java 11 (JDK 11) or higher
 - Maven 3.6 or higher
 - Access to source and target IBM BAW systems with appropriate credentials
 - Network connectivity between the machine running the tool and both BAW systems

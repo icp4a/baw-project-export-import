@@ -19,7 +19,7 @@ All content in this repository including code has been provided by IBM under the
 
 ## Prerequisites
 
-- Java 8 (JDK 1.8) or higher
+- Java 11 (JDK 11) or higher
 - Access to source and target IBM BAW/CP4BA systems with appropriate credentials
 - Network connectivity between the machine running the tool and both BAW/CP4BA systems
 
