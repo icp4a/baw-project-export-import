@@ -401,9 +401,17 @@ public class DependencyResolver {
         String cacheKey = projectId + ":" + branchName;
         if (!snapshotCache.containsKey(cacheKey)) {
             SnapshotsResponse response = apiClient.getSnapshots(projectId, branchName);
-            List<Snapshot> snapshots = response.getSnapshots() != null ? 
+            List<Snapshot> snapshots = response.getSnapshots() != null ?
                 response.getSnapshots() : Collections.emptyList();
-            snapshotCache.put(cacheKey, snapshots);
+            // Filter out snapshots with null id or name (invalid entries returned by the API)
+            List<Snapshot> validSnapshots = snapshots.stream()
+                .filter(s -> s.getId() != null && s.getName() != null)
+                .collect(Collectors.toList());
+            if (validSnapshots.size() < snapshots.size()) {
+                logger.warn("Ignoring {} snapshot(s) with null id or name for project: {} branch: {}",
+                           snapshots.size() - validSnapshots.size(), projectId, branchName);
+            }
+            snapshotCache.put(cacheKey, validSnapshots);
         }
         return snapshotCache.get(cacheKey);
     }

@@ -360,8 +360,19 @@ public class WriteTransferPlan {
             );
             
             if (snapshotsResponse.getSnapshots() != null && !snapshotsResponse.getSnapshots().isEmpty()) {
+                // Filter out snapshots with null id or name (invalid entries returned by the API)
+                List<Snapshot> validSnapshots = snapshotsResponse.getSnapshots().stream()
+                    .filter(s -> s.getId() != null && s.getName() != null)
+                    .collect(java.util.stream.Collectors.toList());
+                if (validSnapshots.size() < snapshotsResponse.getSnapshots().size()) {
+                    logger.warn("Ignoring {} snapshot(s) with null id or name for branch: {}",
+                               snapshotsResponse.getSnapshots().size() - validSnapshots.size(), branch.getName());
+                }
+                if (validSnapshots.isEmpty()) {
+                    continue;
+                }
                 // Sort snapshots by creation date (oldest first)
-                List<Snapshot> sortedSnapshots = new ArrayList<>(snapshotsResponse.getSnapshots());
+                List<Snapshot> sortedSnapshots = new ArrayList<>(validSnapshots);
                 sortedSnapshots.sort(Comparator.comparing(Snapshot::getCreationDate,
                                                          Comparator.nullsLast(String::compareTo)));
                 
